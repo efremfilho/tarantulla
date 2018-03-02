@@ -1,116 +1,110 @@
 # Tarantulla
 
-> **NOTA**: Essa é uma versão _alpha_ em processo de adaptação. Há muito acoplamento e muitas coisas como perisstência e trabalhos manuais serão generalizados e automatizados. Veja as Issues e Milestones para saber o que vai acontecer. Seja paciente: breve instruções sobre deploy e utilização.
+> **NOTE**: This is a _alpha_ version which still needs some adaptation. A lot of persistence, coupling and manual work to be generalized and automated. See our [Issues](https://github.com/oncase/tarantulla/issues) and [Milestones](https://github.com/oncase/tarantulla/issues?q=is%3Aopen+is%3Aissue+no%3Amilestone) to see what are our intentions. Be patient: soon we'll publish about deploy and utilization.
 
-O Tarantulla é responsável por organizar artigos e metadados de diversos _sources_ (portais) em uma base comum onde se possa comparar informrações.
+Tarantulla organized data and metadata of several _sources_ (Publishers) in an unified database for further analysis. The process of consolidation is organized in 3 steps:
 
-O Processo de consolidação é organizado em 3 etapas:
+* Links' capture;
+* Content download;
+* _Parse_ of content;
+* Enrichment of content engagement;
 
-* Captura de links;
-* Download de conteúdo;
-* _Parse_ de conteudo;
-* Enriquecimento com engajamento;
+## Engine
 
-## Engenho
+_Crawling_ implies specific implementation for each _source_ (publisher). Our engine delegate those specificities are describe at the integration contract - as in java, imagine that you need to implement some _interfaces_.
 
-Fazer _crawling_ implica em ter implementações específicas pra cada _source_ (portal).
-
-Esse engenho delega essas especificidades atravaés de um "contrato" de integração - fazendo um paralelo com java, imagine que para integrgar um portal, você tenha que implementar algumas _interfaces_.
-
-Cada portal, então, para atender a esse "contrato", deve:
+Each _source_, to comply the contract, needs to:
  
- - Implementar um `sources/<NOME-DO-PORTAL>/getLinks.kjb` - o job deve copiar para resultset, os campos:
-    * **url** - Endereço do artigo/matéria
-    * **source** - nome do portal
- - Implementar um `sources/<NOME-DO-PORTAL>/parseHTML.ktr` - a transformação deve consultar a tabela `staging.sources_html` e copiar para resultset:
-    * **url** - Endereço do artigo/matéria
-    * **source** - Nome do portal
-    * **tags** - Tags do site separadas por `,`;
-    * **date** - Data de publicação do artigo/matéria - `yyyy-MM-dd`;
-    * **title** - Titulo da página
-    * **textHTML** - HTML do corpo da matéria
-    * **author** - Autor do artigo
- - Implementar um arquivo config.json com os atrubitos:
-    * **name** - nome único do portal. ex.: `Gizmodo B`
-    * **brand** - rede a qual pertence o portal. ex.: `Gizmodo`
-    * **lang** - Idioma do portal. ex.: `en`
-    * **locale** - Locale do portal. ex.: `US`
-    * **category** - Uma categoria que você queira utilizar para subdividir os publishers
+ - Implement a `sources/<SOURCE-NAME>/getLinks.kjb` - the job needs to copy from _resultset's_ fields:
+    * **url** - Content's address;
+    * **source** - Publisher's name.
+ - Implement um `sources/<SOURCE-NAME>/parseHTML.ktr` - the transformation needs to query the table `staging.sources_html` and copy for _resultset_:
+    * **url** - Content's address
+    * **source** - Publisher's name
+    * **tags** - Content's tags separate by `,`;
+    * **date** - publish date from content - `yyyy-MM-dd`;
+    * **title** - Page's title;
+    * **textHTML** - HTML's content;
+    * **author** - Content's author.
+ - Implement config.json with attributes:
+    * **name** - Publisher unique name. ie.: `Gizmodo B`;
+    * **brand** - The generic brand aggregate all publishers from them ie.: `Gizmodo`;
+    * **lang** - Publisher's language. ie.: `en`;
+    * **locale** - Publisher's locale. ie.: `US`;
+    * **category** - Category for aggregate of publisher and brands under, ie. `Technology`.
     
     
 
 ### Staging area
 
-Como o processo é lento, pela necessidade de download, limitação de banda e de acessos dos websites, o engenho tem de se preocupar em não desperdiçar esforço já feito. 
+Since the process can be time consuming, because of all necessary downloads, bandwidth limitations and websites' access, our engine tries to not waste time with unnecessary efforts. That's why,  you need to understand the stagings' role.
 
-Por isso, há de se compreender o papel das stagings.
-
-Há 3 tabelas staging até o parse:
+We have 3 staging tables until our parse:
 
 * **staging.sources_links**
-  - guarda todos os links que chegam do processamento;
-  - link é _primary key_;
+  - store all links processed;
+  - link is _primary key_;
 * **staging.sources_html**
-  - possui os mesmos campos da anterior e mais o conteúdo HMTL baixado; 
-  - link é _primary key_
-  - Antes de baixar um HTML, o processo verifica se já existe HTML para o link;
+  - contains all the fields from before, plus downloaded HMTL's content; 
+  - link is _primary key_;
+  - Before download the HTML, the engine verifies if exists any HTML for that link;
 * **staging.sources_parsed** - 
-  - possui os mesmos campos da sources_links e mais campos gerados pelo `parseHTML`; 
-  - link é _primary key_
-  - no `parseHTML.ktr`, a implementação deve trazer de `sources_html`, apenas aquilo que não existe em `staging.sources_parsed`;
+  - contains all sources_links' fields, plus all the fields generated by `parseHTML`; 
+  - link is _primary key_;
+  - at `parseHTML.ktr`, the engine most bring from `sources_html`, only the content that doesn't exists in `staging.sources_parsed`;
 * **staging.sources_facebook** - 
-  - possui os mesmos campos da sources_links e mais campos de engajamento da consulta em https://developers.facebook.com/docs/graph-api/reference/v2.8/url
-  - link é _primary key_
-  - A implementação traz de `sources_parsed`, apenas aquilo que não existe em `staging.sources_facebook`;
-  - Às vezes o limite de consultas diárias é alcançado e essa consulta ajuda:
+  - contains all the _sources_links_'s fields, plus engagements' fields from query https://developers.facebook.com/docs/graph-api/reference/v2.8/url;
+  - link is _primary key_;
+  - the engine brings from `sources_parsed` only content that doesn't exists in `staging.sources_facebook`;
+  - if daily limits of queries is reach, sometimes we need to do:
 
   ```sql
   delete from staging.sources_facebook where response like '%User request limit reached%'; 
   ```
 
-Dessa maneira, por mais que dê erro em algum estágio, o processo tende a ser capaz de ser re-executado a partir do ponto em que parou, com prejuízo reduzido.
+This way, even if we get some errors from any staging, the engine tends to be able to execute from where it stopped, with reduced damage.
 
 ## Utilização
 
-São 5, os principais parâmetros de execução do `./main.kjb`
+We have 5 of main execution parameters from `./main.kjb`:
 
 ---
 
 `-param:fetchLinks=(true|false)`
 
-Se vai executar a etapa de descoberta de links para todos os sources;
+If we need to execute links' discovery step for all sources;
 
 ---
 
 `-param:downloadContent=(true|false)`
 
-Se vai executar a etapa de download de conteúdo HTML de todos os links existentes que ainda não tenham sido baixados (não estejam no cache de banco na tabela `sources_html`).
+If we need to execute content's download step of all existing non downloaded links, which isn't cached in `sources_html`).
 
 ---
 
 `-param:parseContent=(true|false)`
 
-Se vai executar a etapa de parse de conteúdo HTML de todos os links que tenham HTML persistido e que ainda não tenham sido convertidos (não estejam no cache de banco na tabela `sources_parsed`).
+If we need to execute content's parse step of all existing persisted links and  wasn't converted, which isn't cached in `sources_parsed`).
 ---
 
 `-param:fetchFacebookEngagement=(true|false)`
 
-Se vai executar a etapa de pegar engajamento do Facebook de todos os links que tenham ainda não tenham dados (não estejam no cache de banco na tabela `sources_facebook`).
+If we need to execute Facebook's engagement step of all existing links without data, which isn't cached in `sources_facebook`).
 
 ---
 
 `-param:spscific=(NOTSET|<ID-DO-SOURCE>)`
 
-Se especificado, vai rodar apenas para o source especificado. `<ID-DO-SOURCE>` é o nome da pasta onde a implementação do source está armazenada, depois de `sources/`. Deixe vazio se não quiser especificar
+If specified, our engine will execute just for this source. `<ID-DO-SOURCE>` is a folder's name where the source's implementation is storaged, besides `sources/`. Leave it blank if no specification is needed. 
 
 
 # Backup/restore
 
-Para gerar backups e movimentar dados pesados entre servidores, prefira usar o `pg_dump` em linha de comando.
+For larger backups it is preferable to use `pg_dump` in command line.
 
 ## Backup
 
-Comando para fazer backup das 3 tabelas de _Market_ comprimidas.
+For the compressed backup of 3 tables from _Market_:
 
 ```bash
 ./pg_dump -U postgres \
@@ -127,7 +121,7 @@ Comando para fazer backup das 3 tabelas de _Market_ comprimidas.
 
 ## restore
 
-Comando para restaurar um arquivo gerado com o comando anterior:
+For restore a file generated from previous command:
 
 ```bash
 ./pg_restore -U postgres \
